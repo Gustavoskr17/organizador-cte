@@ -39,8 +39,8 @@ def determinar_produto_e_tes(descricao, uf_origem, uf_destino):
     desc = normalizar_texto(descricao)
     eh_intraestadual = (str(uf_origem).strip().upper() == str(uf_destino).strip().upper())
 
-    # 1. FRETE SOBRE VENDAS (TES Inteligente)
-    if "VENDA" in desc:
+    # 1. FRETE SOBRE VENDAS / REMESSA CONTA E ORDEM (TES Inteligente: Inter 044 / Intra 045)
+    if "VENDA" in desc or ("REMESSA" in desc and "CONTA" in desc and "ORDEM" in desc):
         return "28197", ("045" if eh_intraestadual else "044")
 
     # 2. FRETE DE TRANSFERÊNCIA
