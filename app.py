@@ -14,7 +14,7 @@ st.title("📦 Organizador Automático de CT-e")
 st.markdown("Faça o upload dos 2 arquivos abaixo para organizar os XMLs em pastas e gerar o relatório.")
 
 # ==========================================================
-# FUNÇÕES DE TRATAMENTO E REGRAS FIXAS
+# FUNÇÕES DE TRATAMENTO E CRUZAMENTO INTELIGENTE
 # ==========================================================
 
 def normalizar_texto(texto):
@@ -32,10 +32,9 @@ def extrair_apenas_digitos_cte(valor):
         return str(int(digitos))
     return ""
 
-def determinar_produto_e_tes(descricao, uf_origem, uf_destino, filial="0101", cfop=""):
+def determinar_produto_e_tes_cruzado(descricao, uf_origem, uf_destino, filial="0101", cfop=""):
     """
-    Regras com prioridade rígida e fallback por CFOP do XML para garantir
-    alocação correta nas pastas de Produtos (6 dígitos) e TES.
+    Realiza o cruzamento triplo: CFOP do XML + Descrição da Planilha + Regras de Filial/UF.
     """
     desc = normalizar_texto(descricao)
     cfop_str = str(cfop).strip()
@@ -43,77 +42,53 @@ def determinar_produto_e_tes(descricao, uf_origem, uf_destino, filial="0101", cf
     uf_dest = str(uf_destino).strip().upper()
     filial_clean = str(filial).split('.')[0].strip().zfill(4)
 
-    # 1. Regras de Tributação / Destino
+    # 1. Definição do Tipo de Operação Fiscal
     eh_intraestadual = (uf_ori == uf_dest) and (uf_ori != "")
-    # CT-es da filial 0105 ou ES são tributados mesmo se forem intraestaduais
+    
+    # Filial 0105 ou operações com origem/destino no ES são sempre tributadas (Regra Geral F.E. / Inter)
     eh_tributado_como_inter = (filial_clean == "0105") or (uf_ori == "ES") or (uf_dest == "ES")
+    
     usar_regra_inter = not eh_intraestadual or eh_tributado_como_inter
 
-    # ==================================================================
-    # PRIORIDADE 1: FRASES E EXPRESSÕES ESPECÍFICAS
-    # ==================================================================
-    
-    # Devolução de Venda (Cliente devolvendo)
-    if any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA", "DEVOLUCAO CLIENTE"]):
+    # 2. Cruzamento por Análise Prioritária (CFOP + Descrição)
+
+    # A. DEVOLUÇÃO DE CLIENTE (Venda)
+    if cfop_str in ["5410", "5411", "6410", "6411"] or any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA"]):
         return "051063", ("455" if usar_regra_inter else "480")
 
-    # Devolução de Compra (Devolvendo ao fornecedor)
-    elif any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR", "DEV FORN"]):
+    # B. DEVOLUÇÃO A FORNECEDOR (Compra)
+    elif cfop_str in ["5201", "5202", "6201", "6202"] or any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR"]):
         return "051064", ("051" if usar_regra_inter else "480")
 
-    # Remessa por Conta e Ordem / Vendas
-    elif ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
+    # C. VENDAS E REMESSA CONTA/ORDEM
+    elif cfop_str in ["5352", "5353", "6352", "6353"] or "VENDA" in desc or ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
         return "028197", ("044" if usar_regra_inter else "045")
 
-    # Uso e Consumo / Imobilizado
-    elif any(k in desc for k in ["USO E CONSUMO", "USO/CONSUMO", "MATERIAL DE CONSUMO", "IMOBILIZADO", "ATIVO FIXO"]):
-        return "051060", "356"
-
-    # Importação
-    elif any(k in desc for k in ["IMPORTACAO", "DESEMBARACO", "DESPESA PORTUARIA", "RECINTO ALFANDEGADO"]):
-        return "029975", "480"
-
-    # ==================================================================
-    # PRIORIDADE 2: PALAVRAS-CHAVE DIRETAS
-    # ==================================================================
-
-    elif "VENDA" in desc:
-        return "028197", ("044" if usar_regra_inter else "045")
-
-    elif any(k in desc for k in ["TRANSF", "TRANSFERENCIA", "FILIAL", "ENTRE FILIAIS", "ESTOQUE"]):
+    # D. TRANSFERÊNCIAS ENTRE FILIAIS / ESTOQUES
+    elif cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA", "FILIAL", "ENTRE FILIAIS", "ESTOQUE"]):
         return "051054", ("455" if usar_regra_inter else "054")
 
-    elif any(k in desc for k in ["RMA", "GARANTIA", "TROCA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
+    # E. RMA / GARANTIA / CONSERTO
+    elif cfop_str in ["5915", "6915", "5949", "6949"] or any(k in desc for k in ["RMA", "GARANTIA", "TROCA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
         return "051061", ("052" if usar_regra_inter else "054")
 
-    elif any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO", "GIFT"]):
+    # F. BRINDES / BONIFICAÇÃO / AMOSTRAS
+    elif cfop_str in ["5910", "6910"] or any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO"]):
         return "051066", "356"
-
     elif any(k in desc for k in ["BONIFICACAO", "BONIF"]):
         return "051068", "052"
 
+    # G. IMPORTAÇÃO
+    elif cfop_str.startswith("3") or any(k in desc for k in ["IMPORTACAO", "DESEMBARACO", "PORTUARIO", "AEROPORTUARIO"]):
+        return "029975", "480"
+
+    # H. USO E CONSUMO / IMOBILIZADO
+    elif cfop_str in ["5551", "6551", "5556", "6556"] or any(k in desc for k in ["USO", "CONSUMO", "IMOBILIZADO", "ATIVO FIXO", "ESCRITORIO"]):
+        return "051060", "356"
+
+    # I. COMPRAS DE INSUMOS / MATÉRIA-PRIMA
     elif any(k in desc for k in ["COMPRA", "INSUMO", "MATERIA PRIMA", "FORNECEDOR"]):
         return "051047", "454"
-
-    # ==================================================================
-    # PRIORIDADE 3: DESEMPATE PELO CFOP DO XML (Para descrições genéricas)
-    # ==================================================================
-    if cfop_str:
-        # Transferências
-        if cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"]:
-            return "051054", ("455" if usar_regra_inter else "054")
-        
-        # Devoluções de Compra
-        elif cfop_str in ["5201", "5202", "6201", "6202", "5410", "6410", "5411", "6411"]:
-            return "051064", ("051" if usar_regra_inter else "480")
-
-        # Importação
-        elif cfop_str.startswith("3"):
-            return "029975", "480"
-
-        # Vendas
-        elif cfop_str in ["5101", "5102", "6101", "6102", "5352", "5353", "6352", "6353"]:
-            return "028197", ("044" if usar_regra_inter else "045")
 
     # Fallback Padrão (Vendas)
     return "028197", ("044" if usar_regra_inter else "045")
@@ -130,7 +105,7 @@ with col1:
 with col2:
     zip_xmls = st.file_uploader("2. Pasta compactada com XMLs (.zip)", type=["zip"])
 
-# Seleção manual de coluna se necessário
+# Seleção manual de coluna
 coluna_cte_selecionada = None
 if arquivo_excel_ctes:
     try:
@@ -248,8 +223,8 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
 
                             descricao = str(linha[coluna_desc]).strip() if coluna_desc else ""
 
-                            # Determina o produto (6 dígitos) e TES considerando regras avançadas
-                            cod_produto, tes = determinar_produto_e_tes(
+                            # Determina Produto e TES cruzando CFOP, Descrição e Regras Fiscais
+                            cod_produto, tes = determinar_produto_e_tes_cruzado(
                                 descricao=descricao, 
                                 uf_origem=xml["origem"], 
                                 uf_destino=xml["destino"], 
