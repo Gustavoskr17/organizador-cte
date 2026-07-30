@@ -32,50 +32,66 @@ def extrair_apenas_digitos_cte(valor):
         return str(int(digitos))
     return ""
 
-def determinar_produto_e_tes(descricao, uf_origem, uf_destino):
+def determinar_produto_e_tes(descricao, uf_origem, uf_destino, filial="0101", cfop=""):
     """
-    Regras fixas diretamente no código baseadas na análise de histórico.
+    Regras de Produto (6 dígitos) e TES com base na descrição, Filial, UF e CFOP.
     """
     desc = normalizar_texto(descricao)
-    eh_intraestadual = (str(uf_origem).strip().upper() == str(uf_destino).strip().upper())
+    uf_ori = str(uf_origem).strip().upper()
+    uf_dest = str(uf_destino).strip().upper()
+    filial_clean = str(filial).split('.')[0].strip().zfill(4)
 
-    # 1. FRETE SOBRE VENDAS / REMESSA CONTA E ORDEM (TES Inteligente: Inter 044 / Intra 045)
+    # Verifica se a operação é intraestadual (mesmo estado)
+    eh_intraestadual = (uf_ori == uf_dest) and (uf_ori != "")
+
+    # Regra da Filial 0105 / Espírito Santo (ES):
+    # CT-es da filial 0105 ou ES são tributados mesmo se forem intraestaduais
+    eh_tributado_como_inter = (filial_clean == "0105") or (uf_ori == "ES") or (uf_dest == "ES")
+
+    # Define se deve aplicar a regra de Interestadual / Tributado
+    usar_regra_inter = not eh_intraestadual or eh_tributado_como_inter
+
+    # ----------------------------------------------------
+    # MApeamento de Produtos (6 dígitos) e TES
+    # ----------------------------------------------------
+
+    # 1. FRETE SOBRE VENDAS / REMESSA CONTA E ORDEM
     if "VENDA" in desc or ("REMESSA" in desc and "CONTA" in desc and "ORDEM" in desc):
-        return "28197", ("045" if eh_intraestadual else "044")
+        return "028197", ("044" if usar_regra_inter else "045")
 
     # 2. FRETE DE TRANSFERÊNCIA
     elif "TRANSF" in desc or "TRANSFERENCIA" in desc:
-        return "51054", ("054" if eh_intraestadual else "455")
+        return "051054", ("455" if usar_regra_inter else "054")
 
-    # 3. FRETE RMA / GARANTIA
+    # 3. FRETE RMA / GARANTIA / TROCA
     elif "RMA" in desc or "GARANTIA" in desc or "TROCA" in desc:
-        return "51061", ("054" if eh_intraestadual else "052")
+        return "051061", ("052" if usar_regra_inter else "054")
 
     # 4. FRETE DEVOLUÇÃO DE VENDA
     elif "DEVOLUCAO DE VENDA" in desc or "DEV VENDA" in desc:
-        return "51063", ("480" if eh_intraestadual else "455")
+        return "051063", ("455" if usar_regra_inter else "480")
 
     # 5. FRETE DEVOLUÇÃO DE COMPRA
     elif "DEVOLUCAO" in desc or "DEV" in desc:
-        return "51064", ("480" if eh_intraestadual else "051")
+        return "051064", ("051" if usar_regra_inter else "480")
 
     # 6. FRETE BRINDES / BONIFICAÇÃO
     elif "BRINDE" in desc:
-        return "51066", ("356" if eh_intraestadual else "356")
+        return "051066", "356"
     elif "BONIFICACAO" in desc or "BONIF" in desc:
-        return "51068", ("052" if eh_intraestadual else "052")
+        return "051068", "052"
 
     # 7. FRETE IMPORTAÇÃO
     elif "IMPORTACAO" in desc or "IMPORT" in desc:
-        return "29975", "480"
+        return "029975", "480"
 
     # 8. FRETE COMPRAS INDÚSTRIA
     elif "COMPRA" in desc:
-        return "51047", "454"
+        return "051047", "454"
 
     # 9. FRETE USO E CONSUMO / IMOBILIZADO
     elif "USO" in desc or "CONSUMO" in desc or "IMOBILIZADO" in desc:
-        return "51060", "356"
+        return "051060", "356"
 
     # Padrão para não mapeados
     return "NAO_MAPEADO", "000"
@@ -210,7 +226,14 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
 
                             descricao = str(linha[coluna_desc]).strip() if coluna_desc else ""
 
-                            cod_produto, tes = determinar_produto_e_tes(descricao, xml["origem"], xml["destino"])
+                            # Determina o produto (6 dígitos) e TES considerando as regras de Filial/UF/CFOP
+                            cod_produto, tes = determinar_produto_e_tes(
+                                descricao=descricao, 
+                                uf_origem=xml["origem"], 
+                                uf_destino=xml["destino"], 
+                                filial=filial, 
+                                cfop=xml["cfop"]
+                            )
 
                             nome_pasta = f"{filial} {cod_produto} - {tes}"
                             caminho_no_zip = f"arquivos_organizados/{nome_pasta}/{xml['filename']}"
