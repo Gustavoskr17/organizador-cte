@@ -34,7 +34,7 @@ def extrair_apenas_digitos_cte(valor):
 
 def determinar_produto_e_tes_cruzado(descricao, uf_origem, uf_destino, filial="0101", cfop=""):
     """
-    Realiza o cruzamento triplo com regras prioritárias para Transferência e Fornecedor PR.
+    Realiza o cruzamento triplo com regras prioritárias para Transferência, Brindes e Fornecedor PR.
     """
     desc = normalizar_texto(descricao)
     cfop_str = str(cfop).strip()
@@ -50,9 +50,16 @@ def determinar_produto_e_tes_cruzado(descricao, uf_origem, uf_destino, filial="0
     usar_regra_inter = not eh_intraestadual or eh_tributado_como_inter
 
     # ==================================================================
-    # PRIORIDADE 1: TRANSFERÊNCIAS (Inclusos Fornecedor PR)
+    # PRIORIDADE 1: BRINDES / AMOSTRAS / DOAÇÃO
+    # (Checado antes de Transferência para tratar 'Transferência de Brinde')
     # ==================================================================
-    if cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA"]):
+    if cfop_str in ["5910", "6910"] or any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO", "GIFT"]):
+        return "051066", "356"
+
+    # ==================================================================
+    # PRIORIDADE 2: TRANSFERÊNCIAS (Inclusos Fornecedor PR)
+    # ==================================================================
+    elif cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA"]):
         prod_transf = "051054"
         
         # Regra Específica Fornecedor PR (Origem PR para outro estado)
@@ -64,7 +71,7 @@ def determinar_produto_e_tes_cruzado(descricao, uf_origem, uf_destino, filial="0
             return prod_transf, "455"
 
     # ==================================================================
-    # PRIORIDADE 2: DEVOLUÇÕES (Cliente / Fornecedor)
+    # PRIORIDADE 3: DEVOLUÇÕES (Cliente / Fornecedor)
     # ==================================================================
     elif cfop_str in ["5410", "5411", "6410", "6411"] or any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA"]):
         return "051063", ("455" if usar_regra_inter else "480")
@@ -73,19 +80,16 @@ def determinar_produto_e_tes_cruzado(descricao, uf_origem, uf_destino, filial="0
         return "051064", ("051" if usar_regra_inter else "480")
 
     # ==================================================================
-    # PRIORIDADE 3: VENDAS / REMESSA CONTA E ORDEM
+    # PRIORIDADE 4: VENDAS / REMESSA CONTA E ORDEM
     # ==================================================================
     elif cfop_str in ["5352", "5353", "6352", "6353"] or "VENDA" in desc or ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
         return "028197", ("044" if usar_regra_inter else "045")
 
     # ==================================================================
-    # PRIORIDADE 4: DEMAIS OPERAÇÕES
+    # PRIORIDADE 5: DEMAIS OPERAÇÕES
     # ==================================================================
     elif cfop_str in ["5915", "6915", "5949", "6949"] or any(k in desc for k in ["RMA", "GARANTIA", "TROCA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
         return "051061", ("052" if usar_regra_inter else "054")
-
-    elif cfop_str in ["5910", "6910"] or any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO"]):
-        return "051066", "356"
         
     elif any(k in desc for k in ["BONIFICACAO", "BONIF"]):
         return "051068", "052"
@@ -268,7 +272,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
 
                 # Exibição de Resultados
                 if resultado:
-                    st.success(f"🎉 Sucesso! {len(resultado)} de {len(df_ctes)} registros foram organizados com sucesso!")
+                    st.success(f"🎉 Sucesso! {len(resultado)} de {len(df_ctes)} registros foram organizedos com sucesso!")
                     st.download_button(
                         label="📥 Baixar Arquivos Organizados (.ZIP)",
                         data=zip_saida_buffer.getvalue(),
