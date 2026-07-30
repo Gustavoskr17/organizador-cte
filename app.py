@@ -34,67 +34,89 @@ def extrair_apenas_digitos_cte(valor):
 
 def determinar_produto_e_tes(descricao, uf_origem, uf_destino, filial="0101", cfop=""):
     """
-    Regras de Produto (6 dígitos) e TES com base na descrição, Filial, UF e CFOP.
+    Regras com prioridade rígida e fallback por CFOP do XML para garantir
+    alocação correta nas pastas de Produtos (6 dígitos) e TES.
     """
     desc = normalizar_texto(descricao)
+    cfop_str = str(cfop).strip()
     uf_ori = str(uf_origem).strip().upper()
     uf_dest = str(uf_destino).strip().upper()
     filial_clean = str(filial).split('.')[0].strip().zfill(4)
 
-    # Verifica se a operação é intraestadual (mesmo estado)
+    # 1. Regras de Tributação / Destino
     eh_intraestadual = (uf_ori == uf_dest) and (uf_ori != "")
-
-    # Regra da Filial 0105 / Espírito Santo (ES):
     # CT-es da filial 0105 ou ES são tributados mesmo se forem intraestaduais
     eh_tributado_como_inter = (filial_clean == "0105") or (uf_ori == "ES") or (uf_dest == "ES")
-
-    # Define se deve aplicar a regra de Interestadual / Tributado
     usar_regra_inter = not eh_intraestadual or eh_tributado_como_inter
 
-    # ----------------------------------------------------
-    # MApeamento de Produtos (6 dígitos) e TES
-    # ----------------------------------------------------
-
-    # 1. FRETE SOBRE VENDAS / REMESSA CONTA E ORDEM
-    if "VENDA" in desc or ("REMESSA" in desc and "CONTA" in desc and "ORDEM" in desc):
-        return "028197", ("044" if usar_regra_inter else "045")
-
-    # 2. FRETE DE TRANSFERÊNCIA
-    elif "TRANSF" in desc or "TRANSFERENCIA" in desc:
-        return "051054", ("455" if usar_regra_inter else "054")
-
-    # 3. FRETE RMA / GARANTIA / TROCA
-    elif "RMA" in desc or "GARANTIA" in desc or "TROCA" in desc:
-        return "051061", ("052" if usar_regra_inter else "054")
-
-    # 4. FRETE DEVOLUÇÃO DE VENDA
-    elif "DEVOLUCAO DE VENDA" in desc or "DEV VENDA" in desc:
+    # ==================================================================
+    # PRIORIDADE 1: FRASES E EXPRESSÕES ESPECÍFICAS
+    # ==================================================================
+    
+    # Devolução de Venda (Cliente devolvendo)
+    if any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA", "DEVOLUCAO CLIENTE"]):
         return "051063", ("455" if usar_regra_inter else "480")
 
-    # 5. FRETE DEVOLUÇÃO DE COMPRA
-    elif "DEVOLUCAO" in desc or "DEV" in desc:
+    # Devolução de Compra (Devolvendo ao fornecedor)
+    elif any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR", "DEV FORN"]):
         return "051064", ("051" if usar_regra_inter else "480")
 
-    # 6. FRETE BRINDES / BONIFICAÇÃO
-    elif "BRINDE" in desc:
-        return "051066", "356"
-    elif "BONIFICACAO" in desc or "BONIF" in desc:
-        return "051068", "052"
+    # Remessa por Conta e Ordem / Vendas
+    elif ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
+        return "028197", ("044" if usar_regra_inter else "045")
 
-    # 7. FRETE IMPORTAÇÃO
-    elif "IMPORTACAO" in desc or "IMPORT" in desc:
-        return "029975", "480"
-
-    # 8. FRETE COMPRAS INDÚSTRIA
-    elif "COMPRA" in desc:
-        return "051047", "454"
-
-    # 9. FRETE USO E CONSUMO / IMOBILIZADO
-    elif "USO" in desc or "CONSUMO" in desc or "IMOBILIZADO" in desc:
+    # Uso e Consumo / Imobilizado
+    elif any(k in desc for k in ["USO E CONSUMO", "USO/CONSUMO", "MATERIAL DE CONSUMO", "IMOBILIZADO", "ATIVO FIXO"]):
         return "051060", "356"
 
-    # Padrão para não mapeados
-    return "NAO_MAPEADO", "000"
+    # Importação
+    elif any(k in desc for k in ["IMPORTACAO", "DESEMBARACO", "DESPESA PORTUARIA", "RECINTO ALFANDEGADO"]):
+        return "029975", "480"
+
+    # ==================================================================
+    # PRIORIDADE 2: PALAVRAS-CHAVE DIRETAS
+    # ==================================================================
+
+    elif "VENDA" in desc:
+        return "028197", ("044" if usar_regra_inter else "045")
+
+    elif any(k in desc for k in ["TRANSF", "TRANSFERENCIA", "FILIAL", "ENTRE FILIAIS", "ESTOQUE"]):
+        return "051054", ("455" if usar_regra_inter else "054")
+
+    elif any(k in desc for k in ["RMA", "GARANTIA", "TROCA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
+        return "051061", ("052" if usar_regra_inter else "054")
+
+    elif any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO", "GIFT"]):
+        return "051066", "356"
+
+    elif any(k in desc for k in ["BONIFICACAO", "BONIF"]):
+        return "051068", "052"
+
+    elif any(k in desc for k in ["COMPRA", "INSUMO", "MATERIA PRIMA", "FORNECEDOR"]):
+        return "051047", "454"
+
+    # ==================================================================
+    # PRIORIDADE 3: DESEMPATE PELO CFOP DO XML (Para descrições genéricas)
+    # ==================================================================
+    if cfop_str:
+        # Transferências
+        if cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"]:
+            return "051054", ("455" if usar_regra_inter else "054")
+        
+        # Devoluções de Compra
+        elif cfop_str in ["5201", "5202", "6201", "6202", "5410", "6410", "5411", "6411"]:
+            return "051064", ("051" if usar_regra_inter else "480")
+
+        # Importação
+        elif cfop_str.startswith("3"):
+            return "029975", "480"
+
+        # Vendas
+        elif cfop_str in ["5101", "5102", "6101", "6102", "5352", "5353", "6352", "6353"]:
+            return "028197", ("044" if usar_regra_inter else "045")
+
+    # Fallback Padrão (Vendas)
+    return "028197", ("044" if usar_regra_inter else "045")
 
 # ==========================================================
 # INTERFACE DO STREAMLIT (UPLOADS)
@@ -226,7 +248,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
 
                             descricao = str(linha[coluna_desc]).strip() if coluna_desc else ""
 
-                            # Determina o produto (6 dígitos) e TES considerando as regras de Filial/UF/CFOP
+                            # Determina o produto (6 dígitos) e TES considerando regras avançadas
                             cod_produto, tes = determinar_produto_e_tes(
                                 descricao=descricao, 
                                 uf_origem=xml["origem"], 
