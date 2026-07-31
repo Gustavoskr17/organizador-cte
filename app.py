@@ -34,50 +34,64 @@ def extrair_apenas_digitos_cte(valor):
 
 def determinar_codigo_produto(descricao, cfop=""):
     """
-    Determina unicamente o Código do Produto (6 dígitos) com base na Descrição e CFOP do XML.
+    Determina o Código do Produto (6 dígitos) com base nas descrições exatas da tabela do usuário.
     """
     desc = normalizar_texto(descricao)
     cfop_str = str(cfop).strip()
 
-    # 1. RMA / GARANTIA / TROCA EM GARANTIA / CONSERTO
-    if cfop_str in ["5915", "6915", "5949", "6949"] or any(k in desc for k in ["GARANTIA", "RMA", "TROCA EM GARANTIA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
-        return "051061"
+    # 1. TRANSPORTE FUNCIONARIOS FESTA
+    if any(k in desc for k in ["FUNCIONARIO", "FUNCIONARIOS", "FESTA"]):
+        return "052364"
 
-    # 2. BRINDES / AMOSTRAS / DOAÇÃO
+    # 2. PRINCIPAL
+    elif "PRINCIPAL" in desc:
+        return "048727"
+
+    # 3. NENHUMA / IMPORTAÇÃO
+    elif "NENHUMA" in desc or cfop_str.startswith("3") or any(k in desc for k in ["IMPORTACAO", "DESEMBARACO", "PORTUARIO"]):
+        return "029975"
+
+    # 4. BRINDES
     elif cfop_str in ["5910", "6910"] or any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO", "GIFT"]):
         return "051066"
 
-    # 3. TRANSFERÊNCIAS ENTRE FILIAIS
-    elif cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA"]):
-        return "051054"
-
-    # 4. DEVOLUÇÃO DE VENDA (CLIENTE)
-    elif cfop_str in ["5410", "5411", "6410", "6411"] or any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA"]):
-        return "051063"
-
-    # 5. DEVOLUÇÃO DE COMPRA (FORNECEDOR)
-    elif cfop_str in ["5201", "5202", "6201", "6202"] or any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR"]):
-        return "051064"
-
-    # 6. VENDAS / REMESSA CONTA E ORDEM
-    elif cfop_str in ["5352", "5353", "6352", "6353"] or "VENDA" in desc or ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
-        return "028197"
-
-    # 7. BONIFICAÇÃO
+    # 5. BONIFICAÇÃO
     elif any(k in desc for k in ["BONIFICACAO", "BONIF"]):
         return "051068"
 
-    # 8. IMPORTAÇÃO
-    elif cfop_str.startswith("3") or any(k in desc for k in ["IMPORTACAO", "DESEMBARACO", "PORTUARIO", "AEROPORTUARIO"]):
-        return "029975"
+    # 6. RMA / GARANTIA / CONSERTO
+    elif cfop_str in ["5915", "6915", "5949", "6949"] or any(k in desc for k in ["GARANTIA", "RMA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
+        return "051061"
 
-    # 9. USO E CONSUMO / IMOBILIZADO
+    # 7. DEVOLUÇÃO DE VENDA
+    elif cfop_str in ["5410", "5411", "6410", "6411"] or any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA"]):
+        return "051063"
+
+    # 8. DEVOLUÇÃO DE COMPRA (INDÚSTRIA VS COMÉRCIO)
+    elif cfop_str in ["5201", "5202", "6201", "6202"] or any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR"]):
+        if any(k in desc for k in ["IND", "INDUSTRIA"]):
+            return "051065"
+        return "051064"
+
+    # 9. TRANSFERÊNCIAS (INDÚSTRIA VS COMÉRCIO)
+    elif cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA"]):
+        if any(k in desc for k in ["IND", "INDUSTRIA"]):
+            return "051057"
+        return "051054"
+
+    # 10. COMPRAS (INDÚSTRIA VS COMÉRCIO)
+    elif any(k in desc for k in ["COMPRA", "COMPRAS", "INSUMO", "MATERIA PRIMA", "FORNECEDOR"]):
+        if any(k in desc for k in ["COM", "COMERCIO"]):
+            return "051049"
+        return "051047"
+
+    # 11. USO E CONSUMO / IMOBILIZADO
     elif cfop_str in ["5551", "6551", "5556", "6556"] or any(k in desc for k in ["USO", "CONSUMO", "IMOBILIZADO", "ATIVO FIXO", "ESCRITORIO"]):
         return "051060"
 
-    # 10. COMPRA / INSUMOS
-    elif any(k in desc for k in ["COMPRA", "INSUMO", "MATERIA PRIMA", "FORNECEDOR"]):
-        return "051047"
+    # 12. VENDAS
+    elif cfop_str in ["5352", "5353", "6352", "6353"] or "VENDA" in desc or ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
+        return "028197"
 
     # Fallback Padrão (Vendas)
     return "028197"
@@ -190,10 +204,10 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                 coluna_desc = next((c for c in df_ctes.columns if "DESC" in c.upper()), df_ctes.columns[1] if len(df_ctes.columns) > 1 else df_ctes.columns[0])
                 coluna_filial = next((c for c in df_ctes.columns if "FILIAL" in c.upper()), None)
                 
-                # Identifica a coluna do TES (procura pela coluna 'AV' pela posição 47 ou pelo nome 'TES')
+                # Identifica a coluna do TES (Coluna AV - índice 47 ou busca por nome 'TES')
                 coluna_tes = None
                 if len(df_ctes.columns) >= 48:
-                    coluna_tes = df_ctes.columns[47]  # Coluna AV (índice 47)
+                    coluna_tes = df_ctes.columns[47]
                 else:
                     coluna_tes = next((c for c in df_ctes.columns if "TES" in c.upper()), None)
 
@@ -222,7 +236,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                             descricao = str(linha[coluna_desc]).strip() if coluna_desc else ""
                             cod_produto = determinar_codigo_produto(descricao=descricao, cfop=xml["cfop"])
 
-                            # 3. Obter TES DIRETO DA COLUNA DA PLANILHA (Coluna AV)
+                            # 3. Obter TES DIRETO DA PLANILHA (Coluna AV)
                             tes_raw = str(linha[coluna_tes]).split('.')[0].strip() if coluna_tes and pd.notna(linha[coluna_tes]) else ""
                             tes = tes_raw.zfill(3) if tes_raw else "000"
 
