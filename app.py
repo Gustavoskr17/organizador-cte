@@ -14,7 +14,7 @@ st.title("📦 Organizador Automático de CT-e")
 st.markdown("Faça o upload dos 2 arquivos abaixo para organizar os XMLs em pastas e gerar o relatório.")
 
 # ==========================================================
-# FUNÇÕES DE TRATAMENTO E CRUZAMENTO INTELIGENTE
+# FUNÇÕES DE TRATAMENTO E DETERMINAÇÃO DO PRODUTO
 # ==========================================================
 
 def normalizar_texto(texto):
@@ -32,82 +32,55 @@ def extrair_apenas_digitos_cte(valor):
         return str(int(digitos))
     return ""
 
-def determinar_produto_e_tes_cruzado(descricao, uf_origem, uf_destino, filial="0101", cfop=""):
+def determinar_codigo_produto(descricao, cfop=""):
     """
-    Realiza o cruzamento triplo priorizando RMA/Garantia, Brindes, Transferências e Devoluções.
+    Determina unicamente o Código do Produto (6 dígitos) com base na Descrição e CFOP do XML.
     """
     desc = normalizar_texto(descricao)
     cfop_str = str(cfop).strip()
-    uf_ori = str(uf_origem).strip().upper()
-    uf_dest = str(uf_destino).strip().upper()
-    filial_clean = str(filial).split('.')[0].strip().zfill(4)
 
-    # 1. Definição do Tipo de Operação Fiscal
-    eh_intraestadual = (uf_ori == uf_dest) and (uf_ori != "")
-    
-    # Filial 0105 ou operações com origem/destino no ES são sempre tributadas (TES Geral F.E.)
-    eh_tributado_como_inter = (filial_clean == "0105") or (uf_ori == "ES") or (uf_dest == "ES")
-    usar_regra_inter = not eh_intraestadual or eh_tributado_como_inter
-
-    # ==================================================================
-    # PRIORIDADE 1: RMA / GARANTIA / TROCA EM GARANTIA / CONSERTO
-    # (Checado primeiro para tratar 'Devolução para Troca em Garantia')
-    # ==================================================================
+    # 1. RMA / GARANTIA / TROCA EM GARANTIA / CONSERTO
     if cfop_str in ["5915", "6915", "5949", "6949"] or any(k in desc for k in ["GARANTIA", "RMA", "TROCA EM GARANTIA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
-        return "051061", ("052" if usar_regra_inter else "054")
+        return "051061"
 
-    # ==================================================================
-    # PRIORIDADE 2: BRINDES / AMOSTRAS / DOAÇÃO
-    # ==================================================================
+    # 2. BRINDES / AMOSTRAS / DOAÇÃO
     elif cfop_str in ["5910", "6910"] or any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO", "GIFT"]):
-        return "051066", "356"
+        return "051066"
 
-    # ==================================================================
-    # PRIORIDADE 3: TRANSFERÊNCIAS (Inclusos Fornecedor PR)
-    # ==================================================================
+    # 3. TRANSFERÊNCIAS ENTRE FILIAIS
     elif cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA"]):
-        prod_transf = "051054"
-        
-        # Regra Específica Fornecedor PR (Origem PR para outro estado)
-        if uf_ori == "PR" and not eh_intraestadual:
-            return prod_transf, "049"
-        elif eh_intraestadual and not eh_tributado_como_inter:
-            return prod_transf, "054"
-        else:
-            return prod_transf, "455"
+        return "051054"
 
-    # ==================================================================
-    # PRIORIDADE 4: DEVOLUÇÕES NORMAIS (Cliente / Fornecedor)
-    # ==================================================================
+    # 4. DEVOLUÇÃO DE VENDA (CLIENTE)
     elif cfop_str in ["5410", "5411", "6410", "6411"] or any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA"]):
-        return "051063", ("455" if usar_regra_inter else "480")
+        return "051063"
 
+    # 5. DEVOLUÇÃO DE COMPRA (FORNECEDOR)
     elif cfop_str in ["5201", "5202", "6201", "6202"] or any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR"]):
-        return "051064", ("051" if usar_regra_inter else "480")
+        return "051064"
 
-    # ==================================================================
-    # PRIORIDADE 5: VENDAS / REMESSA CONTA E ORDEM
-    # ==================================================================
+    # 6. VENDAS / REMESSA CONTA E ORDEM
     elif cfop_str in ["5352", "5353", "6352", "6353"] or "VENDA" in desc or ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
-        return "028197", ("044" if usar_regra_inter else "045")
+        return "028197"
 
-    # ==================================================================
-    # PRIORIDADE 6: DEMAIS OPERAÇÕES
-    # ==================================================================
+    # 7. BONIFICAÇÃO
     elif any(k in desc for k in ["BONIFICACAO", "BONIF"]):
-        return "051068", "052"
+        return "051068"
 
+    # 8. IMPORTAÇÃO
     elif cfop_str.startswith("3") or any(k in desc for k in ["IMPORTACAO", "DESEMBARACO", "PORTUARIO", "AEROPORTUARIO"]):
-        return "029975", "480"
+        return "029975"
 
+    # 9. USO E CONSUMO / IMOBILIZADO
     elif cfop_str in ["5551", "6551", "5556", "6556"] or any(k in desc for k in ["USO", "CONSUMO", "IMOBILIZADO", "ATIVO FIXO", "ESCRITORIO"]):
-        return "051060", "356"
+        return "051060"
 
+    # 10. COMPRA / INSUMOS
     elif any(k in desc for k in ["COMPRA", "INSUMO", "MATERIA PRIMA", "FORNECEDOR"]):
-        return "051047", "454"
+        return "051047"
 
     # Fallback Padrão (Vendas)
-    return "028197", ("044" if usar_regra_inter else "045")
+    return "028197"
 
 # ==========================================================
 # INTERFACE DO STREAMLIT (UPLOADS)
@@ -216,6 +189,13 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
 
                 coluna_desc = next((c for c in df_ctes.columns if "DESC" in c.upper()), df_ctes.columns[1] if len(df_ctes.columns) > 1 else df_ctes.columns[0])
                 coluna_filial = next((c for c in df_ctes.columns if "FILIAL" in c.upper()), None)
+                
+                # Identifica a coluna do TES (procura pela coluna 'AV' pela posição 47 ou pelo nome 'TES')
+                coluna_tes = None
+                if len(df_ctes.columns) >= 48:
+                    coluna_tes = df_ctes.columns[47]  # Coluna AV (índice 47)
+                else:
+                    coluna_tes = next((c for c in df_ctes.columns if "TES" in c.upper()), None)
 
                 resultado = []
                 zip_saida_buffer = io.BytesIO()
@@ -234,20 +214,19 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                             xml = xml_por_chave[chave_pl]
 
                         if xml:
+                            # 1. Obter Filial
                             filial_raw = str(linha[coluna_filial]).split('.')[0].strip() if coluna_filial else "0101"
                             filial = filial_raw.zfill(4)
 
+                            # 2. Obter Descrição e determinar Produto (6 dígitos)
                             descricao = str(linha[coluna_desc]).strip() if coluna_desc else ""
+                            cod_produto = determinar_codigo_produto(descricao=descricao, cfop=xml["cfop"])
 
-                            # Determina Produto e TES cruzando CFOP, Descrição e Regras Fiscais
-                            cod_produto, tes = determinar_produto_e_tes_cruzado(
-                                descricao=descricao, 
-                                uf_origem=xml["origem"], 
-                                uf_destino=xml["destino"], 
-                                filial=filial, 
-                                cfop=xml["cfop"]
-                            )
+                            # 3. Obter TES DIRETO DA COLUNA DA PLANILHA (Coluna AV)
+                            tes_raw = str(linha[coluna_tes]).split('.')[0].strip() if coluna_tes and pd.notna(linha[coluna_tes]) else ""
+                            tes = tes_raw.zfill(3) if tes_raw else "000"
 
+                            # Montagem do nome da pasta: "FILIAL PRODUTO - TES"
                             nome_pasta = f"{filial} {cod_produto} - {tes}"
                             caminho_no_zip = f"arquivos_organizados/{nome_pasta}/{xml['filename']}"
 
@@ -258,7 +237,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                                 "Filial": filial,
                                 "Descrição Original": descricao,
                                 "Cod Produto": cod_produto,
-                                "TES": tes,
+                                "TES (Planilha AV)": tes,
                                 "Nome Pasta": nome_pasta,
                                 "CFOP": xml["cfop"],
                                 "UF Origem": xml["origem"],
