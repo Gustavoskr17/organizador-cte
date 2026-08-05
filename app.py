@@ -32,99 +32,68 @@ def extrair_apenas_digitos_cte(valor):
         return str(int(digitos))
     return ""
 
-def determinar_codigo_produto(descricao, filial="0101", cfop=""):
+def determinar_codigo_produto(descricao, cfop=""):
     """
-    Determina o Código do Produto (6 dígitos) com suporte às contas 
-    exatas da Filial 0202 (Solar) e regras padrão para as demais.
+    Determina o Código do Produto (6 dígitos) com base nas descrições exatas da tabela do usuário.
     """
     desc = normalizar_texto(descricao)
     cfop_str = str(cfop).strip()
-    filial_clean = str(filial).split('.')[0].strip().zfill(4)
 
-    # ==================================================================
-    # REGRAS EXCLUSIVAS PARA FILIAL 0202 (SOLAR)
-    # ==================================================================
-    if filial_clean == "0202":
-        if "IMPORTACAO" in desc or cfop_str.startswith("3"):
-            if "31486" in desc:
-                return "031486"
-            return "048723"
-
-        elif cfop_str in ["5910", "6910"] or any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO", "GIFT"]):
-            return "000042"
-
-        elif any(k in desc for k in ["BONIFICACAO", "BONIF"]):
-            return "000043"
-
-        elif cfop_str in ["5915", "6915", "5949", "6949"] or any(k in desc for k in ["GARANTIA", "RMA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
-            return "000039"
-
-        elif cfop_str in ["5410", "5411", "6410", "6411"] or any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA"]):
-            return "000040"
-
-        elif cfop_str in ["5201", "5202", "6201", "6202"] or any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR"]):
-            return "000041"
-
-        elif cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA"]):
-            return "000037"
-
-        elif any(k in desc for k in ["COMPRA", "COMPRAS", "INSUMO", "MATERIA PRIMA", "FORNECEDOR"]):
-            return "000030"
-
-        elif cfop_str in ["5551", "6551", "5556", "6556"] or any(k in desc for k in ["USO", "CONSUMO", "IMOBILIZADO", "ATIVO FIXO", "ESCRITORIO"]):
-            return "000038"
-
-        elif cfop_str in ["5352", "5353", "6352", "6353"] or "VENDA" in desc or ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
-            return "028197"
-
-        # Fallback Solar
-        return "028197"
-
-    # ==================================================================
-    # DEMAIS FILIAIS (PADRÃO)
-    # ==================================================================
+    # 1. TRANSPORTE FUNCIONARIOS FESTA
     if any(k in desc for k in ["FUNCIONARIO", "FUNCIONARIOS", "FESTA"]):
         return "052364"
 
+    # 2. PRINCIPAL
     elif "PRINCIPAL" in desc:
         return "048727"
 
+    # 3. NENHUMA / IMPORTAÇÃO
     elif "NENHUMA" in desc or cfop_str.startswith("3") or any(k in desc for k in ["IMPORTACAO", "DESEMBARACO", "PORTUARIO"]):
         return "029975"
 
+    # 4. BRINDES
     elif cfop_str in ["5910", "6910"] or any(k in desc for k in ["BRINDE", "AMOSTRA", "DOACAO", "GIFT"]):
         return "051066"
 
+    # 5. BONIFICAÇÃO
     elif any(k in desc for k in ["BONIFICACAO", "BONIF"]):
         return "051068"
 
+    # 6. RMA / GARANTIA / CONSERTO
     elif cfop_str in ["5915", "6915", "5949", "6949"] or any(k in desc for k in ["GARANTIA", "RMA", "REPARO", "CONSERTO", "ASSISTENCIA"]):
         return "051061"
 
+    # 7. DEVOLUÇÃO DE VENDA
     elif cfop_str in ["5410", "5411", "6410", "6411"] or any(k in desc for k in ["DEVOLUCAO DE VENDA", "DEV VENDA", "RETORNO DE VENDA"]):
         return "051063"
 
+    # 8. DEVOLUÇÃO DE COMPRA (INDÚSTRIA VS COMÉRCIO)
     elif cfop_str in ["5201", "5202", "6201", "6202"] or any(k in desc for k in ["DEVOLUCAO DE COMPRA", "DEV COMPRA", "RETORNO FORNECEDOR"]):
         if any(k in desc for k in ["IND", "INDUSTRIA"]):
             return "051065"
         return "051064"
 
+    # 9. TRANSFERÊNCIAS (INDÚSTRIA VS COMÉRCIO)
     elif cfop_str in ["5151", "5152", "6151", "6152", "5357", "6357"] or any(k in desc for k in ["TRANSF", "TRANSFERENCIA"]):
         if any(k in desc for k in ["IND", "INDUSTRIA"]):
             return "051057"
         return "051054"
 
+    # 10. COMPRAS (INDÚSTRIA VS COMÉRCIO)
     elif any(k in desc for k in ["COMPRA", "COMPRAS", "INSUMO", "MATERIA PRIMA", "FORNECEDOR"]):
         if any(k in desc for k in ["COM", "COMERCIO"]):
             return "051049"
         return "051047"
 
+    # 11. USO E CONSUMO / IMOBILIZADO
     elif cfop_str in ["5551", "6551", "5556", "6556"] or any(k in desc for k in ["USO", "CONSUMO", "IMOBILIZADO", "ATIVO FIXO", "ESCRITORIO"]):
         return "051060"
 
+    # 12. VENDAS
     elif cfop_str in ["5352", "5353", "6352", "6353"] or "VENDA" in desc or ("REMESSA" in desc and "ORDEM" in desc) or "CONTA E ORDEM" in desc:
         return "028197"
 
+    # Fallback Padrão (Vendas)
     return "028197"
 
 # ==========================================================
@@ -139,6 +108,7 @@ with col1:
 with col2:
     zip_xmls = st.file_uploader("2. Pasta compactada com XMLs (.zip)", type=["zip"])
 
+# Seleção manual de coluna
 coluna_cte_selecionada = None
 if arquivo_excel_ctes:
     try:
@@ -169,6 +139,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
     else:
         with st.spinner("Processando arquivos... Aguarde um instante."):
             try:
+                # 1. Ler todos os XMLs
                 xml_por_numero = {}
                 xml_por_chave = {}
                 amostra_xmls = []
@@ -219,6 +190,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                             except Exception:
                                 pass
 
+                # 2. Ler Planilha de CT-es
                 df_ctes = pd.read_excel(arquivo_excel_ctes)
                 df_ctes.columns = df_ctes.columns.str.strip()
 
@@ -232,6 +204,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                 coluna_desc = next((c for c in df_ctes.columns if "DESC" in c.upper()), df_ctes.columns[1] if len(df_ctes.columns) > 1 else df_ctes.columns[0])
                 coluna_filial = next((c for c in df_ctes.columns if "FILIAL" in c.upper()), None)
                 
+                # Identifica a coluna do TES (Coluna AV - índice 47 ou busca por nome 'TES')
                 coluna_tes = None
                 if len(df_ctes.columns) >= 48:
                     coluna_tes = df_ctes.columns[47]
@@ -247,6 +220,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                         numero_cte = extrair_apenas_digitos_cte(val_bruto)
                         chave_pl = re.sub(r'\D', '', val_bruto)
 
+                        # Match por número ou por Chave de Acesso
                         xml = None
                         if numero_cte in xml_por_numero:
                             xml = xml_por_numero[numero_cte]
@@ -254,15 +228,19 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                             xml = xml_por_chave[chave_pl]
 
                         if xml:
+                            # 1. Obter Filial
                             filial_raw = str(linha[coluna_filial]).split('.')[0].strip() if coluna_filial else "0101"
                             filial = filial_raw.zfill(4)
 
+                            # 2. Obter Descrição e determinar Produto (6 dígitos)
                             descricao = str(linha[coluna_desc]).strip() if coluna_desc else ""
-                            cod_produto = determinar_codigo_produto(descricao=descricao, filial=filial, cfop=xml["cfop"])
+                            cod_produto = determinar_codigo_produto(descricao=descricao, cfop=xml["cfop"])
 
+                            # 3. Obter TES DIRETO DA PLANILHA (Coluna AV)
                             tes_raw = str(linha[coluna_tes]).split('.')[0].strip() if coluna_tes and pd.notna(linha[coluna_tes]) else ""
                             tes = tes_raw.zfill(3) if tes_raw else "000"
 
+                            # Montagem do nome da pasta: "FILIAL PRODUTO - TES"
                             nome_pasta = f"{filial} {cod_produto} - {tes}"
                             caminho_no_zip = f"arquivos_organizados/{nome_pasta}/{xml['filename']}"
 
@@ -288,6 +266,7 @@ if st.button("🚀 Processar e Organizar CT-es", type="primary", use_container_w
                         df_res.to_excel(excel_buffer, index=False)
                         zip_out.writestr("arquivos_organizados/resultado_completo.xlsx", excel_buffer.getvalue())
 
+                # Exibição de Resultados
                 if resultado:
                     st.success(f"🎉 Sucesso! {len(resultado)} de {len(df_ctes)} registros foram organizados com sucesso!")
                     st.download_button(
